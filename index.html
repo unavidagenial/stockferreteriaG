@@ -3,21 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Control de Stock y Ventas - Ferretería</title>
+    <title>Control de Stock y Ventas - Ferretería (Offline DB)</title>
 
-    <!-- MediaPipe Face Mesh & Camera Utils -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
-    <!-- jsPDF para descarga directa de comprobante en PDF -->
-    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js" crossorigin="anonymous"></script>
+    <!-- Modo Híbrido: Intenta cargar desde carpeta local ./libs/ (Pendrive Sin Internet) y si no existe usa CDN -->
+    <script src="./libs/camera_utils.js" onerror="this.src='https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js'"></script>
+    <script src="./libs/face_mesh.js" onerror="this.src='https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js'"></script>
+    <script src="./libs/jspdf.umd.min.js" onerror="this.src='https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'"></script>
 
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; padding-bottom: 260px; }
         
-        /* Layout de dos columnas: Catálogo a la izquierda y Carrito siempre visible a la derecha */
         .layout-wrapper {
-            max-width: 1220px;
+            max-width: 1260px;
             margin: auto;
             display: grid;
             grid-template-columns: 1.75fr 1fr;
@@ -41,20 +39,32 @@
         }
 
         h1, h2 { color: #333; margin-top: 0; }
-        h1 { text-align: center; font-size: 26px; }
-        h2 { font-size: 22px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        h1 { text-align: center; font-size: 25px; margin-bottom: 8px; }
+        h2 { font-size: 21px; border-bottom: 2px solid #eee; padding-bottom: 10px; }
         
+        .db-badge {
+            display: inline-block;
+            background: #e0f2fe;
+            color: #0369a1;
+            font-size: 13px;
+            font-weight: bold;
+            padding: 5px 10px;
+            border-radius: 20px;
+            margin-bottom: 15px;
+            border: 1px solid #bae6fd;
+        }
+
         /* Menú Desplegable */
-        .menu-container { position: relative; display: inline-block; margin-bottom: 20px; width: 100%; }
+        .menu-container { position: relative; display: inline-block; margin-bottom: 18px; width: 100%; }
         .menu-btn { background-color: #007bff; color: white; padding: 15px 25px; border: none; cursor: pointer; border-radius: 4px; font-size: 18px; font-weight: bold; width: 100%; text-align: left; }
         .menu-content { display: none; background-color: #f9f9f9; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); border-radius: 4px; margin-top: 5px; }
-        .menu-content a { color: black; padding: 15px 20px; text-decoration: none; display: block; cursor: pointer; border-bottom: 1px solid #ddd; font-size: 18px; }
+        .menu-content a { color: black; padding: 14px 20px; text-decoration: none; display: block; cursor: pointer; border-bottom: 1px solid #ddd; font-size: 18px; }
         
         /* Efecto Visual de Selección */
         .hovered-element { background-color: #ffeeba !important; outline: 3px solid #ffc107 !important; border-radius: 4px; }
         input:focus { outline: 4px solid #28a745; background-color: #e9f7ef; }
 
-        .form-group { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .form-group { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
         .form-group.hidden { display: none; }
         input { flex: 1; padding: 14px; border: 2px solid #ccc; border-radius: 4px; font-size: 17px; }
         
@@ -67,12 +77,13 @@
         .btn-cart-add { background-color: #0284c7; }
         .btn-danger { background-color: #dc3545; }
         .btn-warning { background-color: #ffc107; color: #111; }
+        .btn-secondary { background-color: #64748b; color: white; }
         
         table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; font-size: 17px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; font-size: 16px; }
         th { background-color: #f8f9fa; font-weight: bold; color: #333; }
         
-        /* Sistema de Semáforo en el nombre del artículo */
+        /* Sistema de Semáforo */
         .stock-verde { color: green; font-weight: bold; }
         .stock-amarillo { color: #d4a017; font-weight: bold; } 
         .stock-rojo { color: red; font-weight: bold; }
@@ -80,37 +91,50 @@
         /* Estilos del Carrito */
         .cart-empty { color: #64748b; font-style: italic; text-align: center; padding: 20px 0; }
         .cart-total-box {
-            margin-top: 15px;
-            padding: 15px;
-            background: #f8fafc;
-            border: 2px solid #cbd5e1;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 22px;
-            font-weight: bold;
-            color: #0f172a;
+            margin-top: 15px; padding: 15px; background: #f8fafc;
+            border: 2px solid #cbd5e1; border-radius: 8px;
+            display: flex; justify-content: space-between; align-items: center;
+            font-size: 22px; font-weight: bold; color: #0f172a;
         }
-        .cart-actions {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-top: 15px;
+        .cart-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+        .qty-controls { display: inline-flex; align-items: center; gap: 6px; }
+
+        /* Historial de Ventas y Backup Pendrive */
+        #ventasPanel, #backupPanel, #adminPanel {
+            display: none; margin-top: 15px; padding: 18px;
+            background-color: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px;
         }
-        .qty-controls {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+        .stats-box {
+            display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;
+        }
+        .stat-card {
+            flex: 1; min-width: 160px; background: white; padding: 12px 15px;
+            border-radius: 8px; border-left: 4px solid #0284c7; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
         }
 
-        /* Super Admin y Pantalla de Bloqueo */
-        #adminPanel { display: none; margin-top: 20px; padding: 20px; background-color: #eee; border-radius: 8px; }
+        /* Modal Post-Compra (Separación de Confirmación vs Descarga/Impresión/Ignorar) */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.85); z-index: 9400;
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .modal-card {
+            background: white; max-width: 520px; width: 100%; border-radius: 12px;
+            padding: 25px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            border-top: 6px solid #28a745;
+        }
+        .modal-card h3 { font-size: 24px; color: #16a34a; margin-top: 0; }
+        .modal-actions {
+            display: flex; flex-direction: column; gap: 12px; margin-top: 20px;
+        }
+        .modal-actions button { padding: 16px; font-size: 18px; }
+
+        /* Pantalla de Bloqueo */
         .locked-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.96); color: white; text-align: center; padding-top: 8%; z-index: 9000; }
         .locked-screen h2 { font-size: 2.6em; color: #dc3545; margin-bottom: 10px; border: none; }
         .locked-box { max-width: 450px; margin: 20px auto; background: #1e293b; padding: 25px; border-radius: 12px; border: 2px solid #dc3545; }
 
-        /* Cámara y Puntero de Precisión (Entrecejo + Coordenadas) */
+        /* Cámara y Puntero de Precisión */
         #camera-preview {
             position: fixed; top: 12px; right: 12px; width: 130px; height: 90px;
             border-radius: 8px; border: 2px solid #007bff; object-fit: cover;
@@ -169,20 +193,14 @@
         .mic-icon { font-size: 40px; margin-bottom: 10px; color: #ffeb3b; animation: pulse 1s infinite; }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); } 100% { transform: scale(1); } }
 
-        /* Estilos exclusivos de Impresión / PDF Offline Nativo */
+        /* Impresión / PDF Offline Nativo */
         #print-receipt { display: none; }
         @media print {
             body * { visibility: hidden; }
             #print-receipt, #print-receipt * { visibility: visible; }
             #print-receipt {
-                display: block !important;
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-                padding: 20px;
-                color: #000;
-                background: #fff;
+                display: block !important; position: absolute; left: 0; top: 0;
+                width: 100%; padding: 20px; color: #000; background: #fff;
             }
         }
     </style>
@@ -202,10 +220,24 @@
     <div>Escuchando...<br><span style="font-size:16px;font-weight:normal;">Habla ahora para escribir</span></div>
 </div>
 
+<!-- MODAL DE COMPRA REGISTRADA: Da la opción de Descargar PDF, Imprimir o Ignorar -->
+<div id="postSaleModal" class="modal-overlay">
+    <div class="modal-card">
+        <h3>✅ ¡Venta Registrada con Éxito!</h3>
+        <p id="modalSaleSummary" style="font-size: 18px; color: #334155; margin: 10px 0;"></p>
+        <p style="font-size: 15px; color: #64748b;">El stock y la base de datos local ya fueron actualizados. ¿Qué deseas hacer con el comprobante?</p>
+        <div class="modal-actions">
+            <button class="btn-cart-add" onclick="accionComprobante('descargar')">📥 Descargar Comprobante PDF</button>
+            <button style="background-color:#0f766e;" onclick="accionComprobante('imprimir')">🖨️ Imprimir / Guardar PDF Nativo (Offline)</button>
+            <button class="btn-secondary" onclick="accionComprobante('ignorar')">✖️ Ignorar y Seguir Vendiendo</button>
+        </div>
+    </div>
+</div>
+
 <!-- Pantalla de Bloqueo por Vencimiento de Pago Semanal (Seguridad Super Admin) -->
 <div id="lockedScreen" class="locked-screen">
     <h2>🔒 SISTEMA BLOQUEADO</h2>
-    <p>El temporizador de uso semanal ha llegado a 0. Las ventas y descargas están deshabilitadas.</p>
+    <p id="lockReasonText">El temporizador de uso semanal ha llegado a 0. Las ventas y descargas están deshabilitadas.</p>
     <div class="locked-box">
         <h3>Desbloqueo Super Admin</h3>
         <div class="form-group">
@@ -241,9 +273,12 @@
 </div>
 
 <div class="layout-wrapper" id="mainApp">
-    <!-- COLUMNA IZQUIERDA: GESTIÓN DE STOCK Y PRODUCTOS -->
+    <!-- COLUMNA IZQUIERDA: GESTIÓN DE STOCK, HISTORIAL Y BASE DE DATOS -->
     <div class="container">
-        <h1>🛠️ Control de Stock - Ferretería</h1>
+        <h1>🛠️ Control de Stock y Ventas - Ferretería</h1>
+        <div style="text-align:center;">
+            <span class="db-badge" id="dbStatusBadge">💾 Base de Datos Local Activa (IndexedDB + Respaldo Persistente)</span>
+        </div>
         
         <div class="menu-container">
             <button class="menu-btn" id="menuPrincipalBtn" onclick="toggleMenu()">☰ Menú Principal (Parpadea o haz clic)</button>
@@ -252,6 +287,8 @@
                 <a onclick="mostrarSeccion('agregar')">➕ Agregar Producto</a>
                 <a onclick="mostrarSeccion('editar')">✏️ Modo Editar Producto</a>
                 <a onclick="mostrarSeccion('eliminar')">🗑️ Modo Eliminar Producto</a>
+                <a onclick="mostrarSeccion('ventas')">📊 Historial de Ventas Guardadas</a>
+                <a onclick="mostrarSeccion('backup')">💾 Base de Datos / Respaldo en Pendrive</a>
                 <a onclick="mostrarSeccion('admin')">⚙️ Super Admin (Temporizador)</a>
             </div>
         </div>
@@ -266,6 +303,43 @@
             <input type="number" id="precio" placeholder="Precio ($) (Teclado)" required step="0.01" min="0">
             <button type="submit" id="btnGuardar">Guardar Producto</button>
         </form>
+
+        <!-- Panel Historial de Ventas (Persistente aunque se apague la netbook) -->
+        <div id="ventasPanel">
+            <h3>📊 Historial de Artículos Vendidos</h3>
+            <div class="stats-box">
+                <div class="stat-card">
+                    <small>Total Ventas Registradas</small>
+                    <div id="statCantVentas" style="font-size:22px; font-weight:bold;">0</div>
+                </div>
+                <div class="stat-card">
+                    <small>Recaudación Acumulada</small>
+                    <div id="statTotalRecaudado" style="font-size:22px; font-weight:bold; color:#16a34a;">$0.00</div>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Comprobante / Fecha</th>
+                        <th>Artículos Vendidos</th>
+                        <th>Total</th>
+                        <th>Comprobante</th>
+                    </tr>
+                </thead>
+                <tbody id="ventasTableBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Panel Base de Datos y Respaldo en Pendrive -->
+        <div id="backupPanel">
+            <h3>💾 Respaldo Físico de Base de Datos (Para Pendrive)</h3>
+            <p>Todos los productos y las ventas se guardan automáticamente en el disco de la netbook (<strong>IndexedDB + LocalStorage</strong>) y no se borran al apagarla. Además, puedes descargar una copia completa a tu pendrive cuando quieras.</p>
+            <div class="form-group">
+                <button class="btn-cart-add" onclick="exportarBaseDeDatosJSON()">⬇️ Descargar Base de Datos Completa (.json)</button>
+                <button class="btn-warning" onclick="document.getElementById('inputImportarDB').click()">⬆️ Restaurar Base desde Pendrive (.json)</button>
+                <input type="file" id="inputImportarDB" accept=".json" style="display:none;" onchange="importarBaseDeDatosJSON(event)">
+            </div>
+        </div>
 
         <!-- Panel de Super Admin -->
         <div id="adminPanel">
@@ -304,7 +378,7 @@
     <div class="cart-panel">
         <h2>🛒 Carrito de Compra</h2>
         <div id="cartContent">
-            <p class="cart-empty">El carrito está vacío. Selecciona "+ Carrito" en cualquier artículo de la tabla.</p>
+            <p class="cart-empty">El carrito está vacío. Selecciona "🛒 + Carrito" en cualquier artículo de la tabla.</p>
         </div>
 
         <div class="cart-total-box">
@@ -313,8 +387,8 @@
         </div>
 
         <div class="cart-actions">
-            <button id="btnFinalizarCompra" onclick="finalizarCompraYDescargarPDF()" disabled>
-                📄 Finalizar Compra y Descargar PDF
+            <button id="btnFinalizarCompra" onclick="finalizarCompra()" disabled>
+                ✅ Finalizar Compra (Guardar Venta)
             </button>
             <button id="btnVaciarCarrito" onclick="vaciarCarrito()" class="btn-danger" disabled>
                 🗑️ Vaciar Carrito
@@ -323,12 +397,162 @@
     </div>
 </div>
 
-<!-- Contenedor oculto para respaldo de impresión / PDF offline -->
+<!-- Contenedor oculto para impresión / PDF offline nativo -->
 <div id="print-receipt"></div>
 
 <script>
     // ==========================================
-    // 1. SISTEMA DE FERRETERÍA, CARRITO Y SEGURIDAD SUPER ADMIN
+    // 1. MOTOR DE BASE DE DATOS LOCAL PERSISTENTE (IndexedDB + Espejo LocalStorage)
+    // ==========================================
+    const DB_NAME = 'FerreteriaOfflineDB';
+    const DB_VERSION = 1;
+    let dbInstance = null;
+
+    const STOCK_INICIAL = [
+        { unidades: 10, detalle: 'Machete', precio: 8500 },
+        { unidades: 5, detalle: 'Martillo Galponero', precio: 6200 },
+        { unidades: 2, detalle: 'Destornillador Phillips', precio: 3100 }
+    ];
+
+    let inventario = JSON.parse(localStorage.getItem('ferreteriaStock')) || STOCK_INICIAL;
+    let historialVentas = JSON.parse(localStorage.getItem('ferreteriaVentas')) || [];
+    let carrito = [];
+    let ultimaVentaRegistrada = null;
+    let modoActual = 'ninguna';
+    let editandoIndex = null;
+
+    // Seguridad de Temporizador y Protección Anti-Manipulación de Reloj (Anti-Rollback)
+    let timerExpiration = localStorage.getItem('timerExpiration');
+    let lastRecordedTimestamp = parseInt(localStorage.getItem('lastRecordedTimestamp')) || Date.now();
+    let clockTampered = false;
+
+    function inicializarIndexedDB() {
+        if (!('indexedDB' in window)) return;
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+        request.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains('estado')) {
+                db.createObjectStore('estado', { keyPath: 'clave' });
+            }
+        };
+
+        request.onsuccess = (e) => {
+            dbInstance = e.target.result;
+            cargarDesdeIndexedDB();
+        };
+
+        request.onerror = () => {
+            document.getElementById('dbStatusBadge').textContent = '💾 Modo LocalStorage Activo';
+        };
+    }
+
+    function cargarDesdeIndexedDB() {
+        if (!dbInstance) return;
+        const tx = dbInstance.transaction(['estado'], 'readonly');
+        const store = tx.objectStore('estado');
+
+        const reqStock = store.get('inventario');
+        const reqVentas = store.get('historialVentas');
+        const reqTimer = store.get('timerSecurity');
+
+        reqStock.onsuccess = () => {
+            if (reqStock.result && Array.isArray(reqStock.result.valor)) {
+                inventario = reqStock.result.valor;
+                localStorage.setItem('ferreteriaStock', JSON.stringify(inventario));
+                renderTable(modoActual);
+            } else {
+                guardarEnBaseDeDatos();
+            }
+        };
+
+        reqVentas.onsuccess = () => {
+            if (reqVentas.result && Array.isArray(reqVentas.result.valor)) {
+                historialVentas = reqVentas.result.valor;
+                localStorage.setItem('ferreteriaVentas', JSON.stringify(historialVentas));
+                renderHistorialVentas();
+            }
+        };
+
+        reqTimer.onsuccess = () => {
+            if (reqTimer.result && reqTimer.result.valor) {
+                const sec = reqTimer.result.valor;
+                if (sec.timerExpiration && !timerExpiration) {
+                    timerExpiration = sec.timerExpiration;
+                    localStorage.setItem('timerExpiration', timerExpiration);
+                }
+                if (sec.lastRecordedTimestamp && sec.lastRecordedTimestamp > lastRecordedTimestamp) {
+                    lastRecordedTimestamp = sec.lastRecordedTimestamp;
+                    localStorage.setItem('lastRecordedTimestamp', String(lastRecordedTimestamp));
+                }
+            }
+        };
+    }
+
+    function guardarEnBaseDeDatos() {
+        localStorage.setItem('ferreteriaStock', JSON.stringify(inventario));
+        localStorage.setItem('ferreteriaVentas', JSON.stringify(historialVentas));
+        if (timerExpiration) localStorage.setItem('timerExpiration', String(timerExpiration));
+        localStorage.setItem('lastRecordedTimestamp', String(lastRecordedTimestamp));
+
+        if (!dbInstance) return;
+        try {
+            const tx = dbInstance.transaction(['estado'], 'readwrite');
+            const store = tx.objectStore('estado');
+            store.put({ clave: 'inventario', valor: inventario });
+            store.put({ clave: 'historialVentas', valor: historialVentas });
+            store.put({
+                clave: 'timerSecurity',
+                valor: {
+                    timerExpiration: timerExpiration,
+                    lastRecordedTimestamp: lastRecordedTimestamp
+                }
+            });
+        } catch (err) {
+            console.error('Error guardando en IndexedDB:', err);
+        }
+    }
+
+    // Exportar e Importar Base de Datos completa en un archivo JSON para el Pendrive
+    function exportarBaseDeDatosJSON() {
+        if (sistemaEstaBloqueado()) return;
+        const backupData = {
+            fechaExportacion: new Date().toISOString(),
+            inventario: inventario,
+            historialVentas: historialVentas
+        };
+        const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Respaldo_Ferreteria_${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function importarBaseDeDatosJSON(event) {
+        if (sistemaEstaBloqueado()) return;
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (Array.isArray(data.inventario)) inventario = data.inventario;
+                if (Array.isArray(data.historialVentas)) historialVentas = data.historialVentas;
+                guardarEnBaseDeDatos();
+                renderTable('ninguna');
+                renderHistorialVentas();
+                alert('✅ Base de datos restaurada correctamente desde el pendrive.');
+            } catch (err) {
+                alert('❌ El archivo seleccionado no tiene un formato válido.');
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    // ==========================================
+    // 2. SEGURIDAD SUPER ADMIN Y ANTI-ROLLBACK DE RELOJ
     // ==========================================
     const form = document.getElementById('stockForm');
     const tableBody = document.getElementById('tableBody');
@@ -336,22 +560,13 @@
     const seccionBuscador = document.getElementById('seccionBuscador');
     const menuContentDiv = document.getElementById('menuContentDiv');
     const adminPanel = document.getElementById('adminPanel');
+    const ventasPanel = document.getElementById('ventasPanel');
+    const backupPanel = document.getElementById('backupPanel');
     const lockedScreen = document.getElementById('lockedScreen');
     const mainApp = document.getElementById('mainApp');
-    
-    let inventario = JSON.parse(localStorage.getItem('ferreteriaStock')) || [
-        { unidades: 10, detalle: 'Machete', precio: 8500 },
-        { unidades: 5, detalle: 'Martillo Galponero', precio: 6200 },
-        { unidades: 2, detalle: 'Destornillador Phillips', precio: 3100 }
-    ];
-    let carrito = [];
-    let modoActual = 'ninguna';
-    let editandoIndex = null; 
-    let timerExpiration = localStorage.getItem('timerExpiration');
-    let lastValidCheck = Date.now();
 
-    // Validación de seguridad del temporizador
     function sistemaEstaBloqueado() {
+        if (clockTampered) return true;
         if (!timerExpiration) return false;
         return Date.now() >= parseInt(timerExpiration);
     }
@@ -365,12 +580,25 @@
     }
 
     function checkTimer() {
-        if (!timerExpiration) return;
         const now = Date.now();
+        // Protección contra retraso manual de fecha/hora en la netbook (tolerancia de 5 min)
+        if (now + 300000 < lastRecordedTimestamp) {
+            clockTampered = true;
+            document.getElementById('lockReasonText').textContent = '⚠️ Se detectó una alteración en la fecha/hora del reloj del sistema. Ingrese clave de Super Admin para revalidar.';
+            lockedScreen.style.display = 'block';
+            mainApp.style.display = 'none';
+            return;
+        } else {
+            lastRecordedTimestamp = Math.max(now, lastRecordedTimestamp);
+            localStorage.setItem('lastRecordedTimestamp', String(lastRecordedTimestamp));
+        }
+
+        if (!timerExpiration) return;
         const expirationTime = parseInt(timerExpiration);
         const display = document.getElementById('timeLeftDisplay');
         
         if (now >= expirationTime) {
+            document.getElementById('lockReasonText').textContent = 'El temporizador de uso semanal ha llegado a 0. Las ventas y descargas están deshabilitadas.';
             lockedScreen.style.display = 'block';
             mainApp.style.display = 'none';
             if (display) display.innerText = "0s (Vencido)";
@@ -384,7 +612,6 @@
         }
     }
     setInterval(checkTimer, 1000);
-    checkTimer();
 
     function loginAdmin() {
         const user = document.getElementById('adminUser').value.trim();
@@ -392,6 +619,7 @@
         if (user === 'admin' && pass === '1234') {
             document.getElementById('timerConfig').style.display = 'block';
             document.getElementById('loginBox').style.display = 'none';
+            cerrarTeclado();
         } else {
             alert('Credenciales incorrectas (Usa admin / 1234)');
         }
@@ -400,8 +628,10 @@
     function configurarTimer() {
         const dias = parseFloat(document.getElementById('diasTimer').value);
         if (dias > 0) {
+            clockTampered = false;
+            lastRecordedTimestamp = Date.now();
             timerExpiration = Date.now() + (dias * 24 * 60 * 60 * 1000);
-            localStorage.setItem('timerExpiration', timerExpiration);
+            guardarEnBaseDeDatos();
             document.getElementById('diasTimer').value = '';
             cerrarTeclado();
             checkTimer();
@@ -411,7 +641,7 @@
 
     function bloquearInmediatamente() {
         timerExpiration = Date.now() - 1000;
-        localStorage.setItem('timerExpiration', timerExpiration);
+        guardarEnBaseDeDatos();
         cerrarTeclado();
         checkTimer();
     }
@@ -421,8 +651,10 @@
         const p = document.getElementById('unlockPass').value.trim();
         const d = parseFloat(document.getElementById('unlockDias').value) || 7;
         if ((u === 'admin' || u === '') && p === '1234') {
+            clockTampered = false;
+            lastRecordedTimestamp = Date.now();
             timerExpiration = Date.now() + (d * 24 * 60 * 60 * 1000);
-            localStorage.setItem('timerExpiration', timerExpiration);
+            guardarEnBaseDeDatos();
             cerrarTeclado();
             checkTimer();
         } else {
@@ -430,6 +662,9 @@
         }
     }
 
+    // ==========================================
+    // 3. NAVEGACIÓN Y GESTIÓN DE INVENTARIO
+    // ==========================================
     function toggleMenu() {
         menuContentDiv.style.display = menuContentDiv.style.display === 'block' ? 'none' : 'block';
     }
@@ -440,6 +675,9 @@
         formSection.classList.add('hidden');
         seccionBuscador.style.display = 'none';
         adminPanel.style.display = 'none';
+        ventasPanel.style.display = 'none';
+        backupPanel.style.display = 'none';
+        document.getElementById('stockTable').style.display = 'table';
         
         if (seccion === 'agregar') {
             editandoIndex = null;
@@ -450,6 +688,14 @@
         else if (seccion === 'editar') { seccionBuscador.style.display = 'block'; renderTable('editar'); }
         else if (seccion === 'eliminar') { seccionBuscador.style.display = 'block'; renderTable('eliminar'); }
         else if (seccion === 'articulos') { seccionBuscador.style.display = 'block'; renderTable('ninguna'); }
+        else if (seccion === 'ventas') {
+            document.getElementById('stockTable').style.display = 'none';
+            ventasPanel.style.display = 'block';
+            renderHistorialVentas();
+        }
+        else if (seccion === 'backup') {
+            backupPanel.style.display = 'block';
+        }
         else if (seccion === 'admin') { adminPanel.style.display = 'block'; }
     }
 
@@ -485,7 +731,6 @@
         inventario.forEach((item, index) => {
             const tr = document.createElement('tr');
             const u = parseInt(item.unidades) || 0;
-            // Semáforo: >= 6 verde, 5 amarillo, <= 4 rojo
             let color = u >= 6 ? 'stock-verde' : (u === 5 ? 'stock-amarillo' : 'stock-rojo');
             let html = `<td class="${color}">${item.detalle}</td><td>${u}</td><td>$${parseFloat(item.precio).toFixed(2)}</td>`;
             
@@ -494,7 +739,6 @@
             } else if (modoAccion === 'editar') {
                 html += `<td><button class="btn-sm btn-warning" onclick="cargarParaEditar(${index})">✏️ Editar</button></td>`;
             } else {
-                // En vista principal permite sumar al carrito si hay stock disponible
                 const itemEnCarrito = carrito.find(c => c.indexProducto === index);
                 const cantEnCarrito = itemEnCarrito ? itemEnCarrito.cantidad : 0;
                 const sinStock = (u - cantEnCarrito) <= 0;
@@ -519,7 +763,7 @@
         } else {
             inventario.push(nuevoItem);
         }
-        localStorage.setItem('ferreteriaStock', JSON.stringify(inventario));
+        guardarEnBaseDeDatos();
         form.reset();
         cerrarTeclado();
         mostrarSeccion('articulos');
@@ -529,13 +773,13 @@
         if (sistemaEstaBloqueado()) return;
         inventario.splice(index, 1);
         carrito = carrito.filter(c => c.indexProducto !== index);
-        localStorage.setItem('ferreteriaStock', JSON.stringify(inventario));
+        guardarEnBaseDeDatos();
         renderTable('eliminar');
         renderCarrito();
     }
 
     // ==========================================
-    // 2. LÓGICA DEL CARRITO Y DESCARGA DE COMPROBANTE PDF
+    // 4. CARRITO, FINALIZACIÓN EN 2 PASOS Y COMPROBANTE PDF
     // ==========================================
     function agregarAlCarrito(indexProducto) {
         if (sistemaEstaBloqueado()) {
@@ -646,7 +890,8 @@
         btnVaciar.disabled = false;
     }
 
-    function finalizarCompraYDescargarPDF() {
+    // PASO 1: Finalizar la compra (descuenta stock, guarda venta en Base de Datos y abre el modal de opciones)
+    function finalizarCompra() {
         if (sistemaEstaBloqueado()) {
             alert('Operación bloqueada: el temporizador de uso semanal llegó a 0.');
             checkTimer();
@@ -657,19 +902,50 @@
         const fechaHora = new Date().toLocaleString('es-AR');
         const nroComprobante = 'COMP-' + Date.now().toString().slice(-6);
         const totalFinal = calcularTotalCarrito();
-        const itemsComprados = carrito.map(i => ({ ...i }));
+        const itemsComprados = carrito.map(i => ({
+            detalle: i.detalle,
+            precio: i.precio,
+            cantidad: i.cantidad,
+            subtotal: i.precio * i.cantidad
+        }));
 
-        // 1. Descontar las unidades compradas del stock real y guardar en localStorage
-        itemsComprados.forEach(item => {
+        // 1. Descontar stock
+        carrito.forEach(item => {
             const prod = inventario[item.indexProducto];
             if (prod) {
                 prod.unidades = Math.max(0, (parseInt(prod.unidades) || 0) - item.cantidad);
             }
         });
-        localStorage.setItem('ferreteriaStock', JSON.stringify(inventario));
 
-        // 2. Generar y descargar PDF (usa jsPDF si está cargado; si está 100% offline sin caché usa el generador PDF del navegador)
-        if (window.jspdf && window.jspdf.jsPDF) {
+        // 2. Registrar la venta en el historial persistente de la Base de Datos
+        ultimaVentaRegistrada = {
+            id: nroComprobante,
+            fecha: fechaHora,
+            items: itemsComprados,
+            total: totalFinal
+        };
+        historialVentas.unshift(ultimaVentaRegistrada);
+        guardarEnBaseDeDatos();
+
+        // 3. Limpiar carrito y actualizar interfaz
+        carrito = [];
+        renderCarrito();
+        renderTable(modoActual);
+        renderHistorialVentas();
+
+        // 4. Mostrar Modal para que el usuario elija si quiere Descargar PDF, Imprimir o Ignorar
+        document.getElementById('modalSaleSummary').innerHTML = `Comprobante <strong>${nroComprobante}</strong> — Total: <strong>$${totalFinal.toFixed(2)}</strong>`;
+        document.getElementById('postSaleModal').style.display = 'flex';
+    }
+
+    // PASO 2: Acción elegida en el Modal (Descargar PDF, Imprimir o Ignorar)
+    function accionComprobante(accion, ventaEspecifica = null) {
+        const venta = ventaEspecifica || ultimaVentaRegistrada;
+        document.getElementById('postSaleModal').style.display = 'none';
+
+        if (!venta || accion === 'ignorar') return;
+
+        if (accion === 'descargar' && window.jspdf && window.jspdf.jsPDF) {
             const { jsPDF } = window.jspdf;
             const doc = new jsPDF();
 
@@ -677,8 +953,8 @@
             doc.text("FERRETERIA - COMPROBANTE DE COMPRA", 14, 20);
             
             doc.setFontSize(11);
-            doc.text(`Nro Comprobante: ${nroComprobante}`, 14, 30);
-            doc.text(`Fecha y Hora: ${fechaHora}`, 14, 37);
+            doc.text(`Nro Comprobante: ${venta.id}`, 14, 30);
+            doc.text(`Fecha y Hora: ${venta.fecha}`, 14, 37);
             doc.line(14, 42, 196, 42);
 
             let y = 50;
@@ -692,12 +968,11 @@
             doc.line(14, y + 3, 196, y + 3);
             y += 11;
 
-            itemsComprados.forEach(item => {
-                const sub = item.precio * item.cantidad;
+            venta.items.forEach(item => {
                 doc.text(String(item.cantidad), 14, y);
                 doc.text(String(item.detalle).substring(0, 42), 35, y);
                 doc.text(`$${item.precio.toFixed(2)}`, 135, y);
-                doc.text(`$${sub.toFixed(2)}`, 168, y);
+                doc.text(`$${item.subtotal.toFixed(2)}`, 168, y);
                 y += 9;
                 if (y > 270) {
                     doc.addPage();
@@ -709,46 +984,77 @@
             y += 10;
             doc.setFontSize(14);
             doc.setFont(undefined, 'bold');
-            doc.text(`TOTAL FINAL: $${totalFinal.toFixed(2)}`, 125, y);
+            doc.text(`TOTAL FINAL: $${venta.total.toFixed(2)}`, 125, y);
 
-            doc.save(`Compra_Ferreteria_${nroComprobante}.pdf`);
+            doc.save(`Compra_Ferreteria_${venta.id}.pdf`);
         } else {
-            // Respaldo 100% offline sin librerías externas (Imprimir / Guardar como PDF)
+            // Impresión o guardado PDF 100% nativo del navegador (no requiere internet ni librerías)
             const printDiv = document.getElementById('print-receipt');
-            let filasHTML = itemsComprados.map(i => `
+            let filasHTML = venta.items.map(i => `
                 <tr>
                     <td>${i.cantidad}</td>
                     <td>${i.detalle}</td>
                     <td>$${i.precio.toFixed(2)}</td>
-                    <td>$${(i.precio * i.cantidad).toFixed(2)}</td>
+                    <td>$${i.subtotal.toFixed(2)}</td>
                 </tr>
             `).join('');
 
             printDiv.innerHTML = `
                 <h2>FERRETERÍA - COMPROBANTE DE COMPRA</h2>
-                <p><strong>Comprobante:</strong> ${nroComprobante} | <strong>Fecha:</strong> ${fechaHora}</p>
+                <p><strong>Comprobante:</strong> ${venta.id} | <strong>Fecha:</strong> ${venta.fecha}</p>
                 <table border="1" cellpadding="8" cellspacing="0" style="width:100%; border-collapse:collapse;">
                     <thead>
                         <tr><th>Cant.</th><th>Detalle</th><th>Precio Unit.</th><th>Subtotal</th></tr>
                     </thead>
                     <tbody>${filasHTML}</tbody>
                 </table>
-                <h3 style="text-align:right; margin-top:15px;">TOTAL FINAL: $${totalFinal.toFixed(2)}</h3>
+                <h3 style="text-align:right; margin-top:15px;">TOTAL FINAL: $${venta.total.toFixed(2)}</h3>
             `;
             window.print();
         }
-
-        // 3. Limpiar carrito y refrescar tabla con el nuevo semáforo de stock
-        carrito = [];
-        renderCarrito();
-        renderTable(modoActual);
     }
 
+    function reimprimirVentaPorIndice(idx) {
+        const venta = historialVentas[idx];
+        if (!venta) return;
+        accionComprobante('descargar', venta);
+    }
+
+    function renderHistorialVentas() {
+        const tbody = document.getElementById('ventasTableBody');
+        const statCant = document.getElementById('statCantVentas');
+        const statTotal = document.getElementById('statTotalRecaudado');
+        if (!tbody) return;
+
+        statCant.textContent = String(historialVentas.length);
+        const sumaTotal = historialVentas.reduce((acc, v) => acc + (parseFloat(v.total) || 0), 0);
+        statTotal.textContent = `$${sumaTotal.toFixed(2)}`;
+
+        if (historialVentas.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; color:#64748b;">Aún no hay ventas registradas.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = historialVentas.map((v, idx) => {
+            const resumenItems = v.items.map(i => `${i.cantidad}x ${i.detalle}`).join(', ');
+            return `<tr>
+                <td><strong>${v.id}</strong><br><small>${v.fecha}</small></td>
+                <td>${resumenItems}</td>
+                <td><strong>$${ parseFloat(v.total).toFixed(2) }</strong></td>
+                <td><button class="btn-sm btn-cart-add" onclick="reimprimirVentaPorIndice(${idx})">📄 PDF / Imprimir</button></td>
+            </tr>`;
+        }).join('');
+    }
+
+    // Inicializar datos y tablas al arrancar
+    inicializarIndexedDB();
+    checkTimer();
     renderTable('ninguna');
     renderCarrito();
+    renderHistorialVentas();
 
     // ==========================================
-    // 3. TECLADO NUMÉRICO COMPACTO
+    // 5. TECLADO NUMÉRICO COMPACTO
     // ==========================================
     let inputActivoNum = null;
     const tecladoDOM = document.getElementById('virtual-keypad');
@@ -766,7 +1072,7 @@
     document.getElementById('precio').addEventListener('click', () => abrirTeclado('precio'));
 
     // ==========================================
-    // 4. DICTADO POR VOZ
+    // 6. DICTADO POR VOZ
     // ==========================================
     const voiceStatus = document.getElementById('voice-status');
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -797,7 +1103,7 @@
     document.getElementById('buscador').addEventListener('click', () => iniciarDictado('buscador'));
 
     // ==========================================
-    // 5. MEDIAPIPE: ENTRECEJO + TRAZADO DE COORDENADAS + PARPADEO
+    // 7. MEDIAPIPE: ENTRECEJO + TRAZADO DE COORDENADAS + PARPADEO
     // ==========================================
     const gazeCursor = document.getElementById('gaze-cursor');
     const cursorDot = document.getElementById('cursor-dot');
@@ -837,70 +1143,80 @@
     function calcularDistancia(p1, p2) { return Math.hypot(p1.x - p2.x, p1.y - p2.y); }
     function calcularEAR(lm, outer, inner, top, bottom) { return calcularDistancia(lm[top], lm[bottom]) / calcularDistancia(lm[outer], lm[inner]); }
 
-    const faceMesh = new FaceMesh({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
-    faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-
-    faceMesh.onResults((results) => {
-        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-            statusEl.textContent = 'Rastreo OK (Entrecejo + Parpadeo)';
-            statusEl.style.background = '#28a745';
-            
-            const lm = results.multiFaceLandmarks[0];
-            const entrecejoX = (lm[168].x + (lm[133].x + lm[362].x) / 2) / 2;
-            const entrecejoY = (lm[168].y + (lm[133].y + lm[362].y) / 2) / 2;
-
-            const targetX = (window.innerWidth / 2) + ((1 - entrecejoX) - 0.5) * SENSIBILIDAD_X * window.innerWidth;
-            const targetY = (window.innerHeight / 2) + (entrecejoY - 0.5) * SENSIBILIDAD_Y * window.innerHeight;
-
-            cursorX += (targetX - cursorX) * FACTOR_SUAVIZADO;
-            cursorY += (targetY - cursorY) * FACTOR_SUAVIZADO;
-            
-            const finalX = Math.max(0, Math.min(window.innerWidth - 1, cursorX));
-            const finalY = Math.max(0, Math.min(window.innerHeight - 1, cursorY));
-
-            gazeCursor.style.left = `${finalX}px`; gazeCursor.style.top = `${finalY}px`;
-            gazeCursor.style.display = 'block';
-            cursorCoords.textContent = `X: ${Math.round(finalX)} | Y: ${Math.round(finalY)}`;
-            drawTrail(finalX, finalY);
-
-            const element = document.elementFromPoint(finalX, finalY);
-            if (hoveredElement && hoveredElement !== element) hoveredElement.classList.remove('hovered-element');
-            if (element && (element.tagName === 'BUTTON' || element.tagName === 'A' || element.tagName === 'INPUT')) {
-                element.classList.add('hovered-element');
-                hoveredElement = element;
-            } else { hoveredElement = null; }
-
-            const ear = (calcularEAR(lm, 33, 133, 159, 145) + calcularEAR(lm, 362, 263, 386, 374)) / 2;
-            if (ear < 0.22 && (Date.now() - lastBlinkTime > 1300)) {
-                lastBlinkTime = Date.now();
-                cursorDot.style.backgroundColor = '#ffc107';
-                cursorDot.style.transform = 'translate(-50%, -50%) scale(2.2)';
-                setTimeout(() => {
-                    cursorDot.style.backgroundColor = '#ef4444';
-                    cursorDot.style.transform = 'translate(-50%, -50%) scale(1)';
-                }, 300);
-
-                if (element) {
-                    if (element.tagName === 'INPUT') element.focus();
-                    element.click();
-                }
-            }
-        } else {
-            statusEl.textContent = 'Buscando rostro...'; statusEl.style.background = '#dc3545';
-            gazeCursor.style.display = 'none';
-            ctx.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
-            trailPoints.length = 0;
+    function iniciarRastreoFacial() {
+        if (typeof FaceMesh === 'undefined') {
+            statusEl.textContent = 'Modo sin cámara (Offline sin libs)';
+            statusEl.style.background = '#64748b';
+            return;
         }
-    });
 
-    async function startCamera() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
-            videoElement.srcObject = stream; await videoElement.play();
-            new Camera(videoElement, { onFrame: async () => { await faceMesh.send({ image: videoElement }); }, width: 640, height: 480 }).start();
-        } catch (err) { statusEl.textContent = 'Cámara bloqueada'; statusEl.style.background = '#dc3545'; }
+        const faceMesh = new FaceMesh({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
+        faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+
+        faceMesh.onResults((results) => {
+            if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+                statusEl.textContent = 'Rastreo OK (Entrecejo + Parpadeo)';
+                statusEl.style.background = '#28a745';
+                
+                const lm = results.multiFaceLandmarks[0];
+                const entrecejoX = (lm[168].x + (lm[133].x + lm[362].x) / 2) / 2;
+                const entrecejoY = (lm[168].y + (lm[133].y + lm[362].y) / 2) / 2;
+
+                const targetX = (window.innerWidth / 2) + ((1 - entrecejoX) - 0.5) * SENSIBILIDAD_X * window.innerWidth;
+                const targetY = (window.innerHeight / 2) + (entrecejoY - 0.5) * SENSIBILIDAD_Y * window.innerHeight;
+
+                cursorX += (targetX - cursorX) * FACTOR_SUAVIZADO;
+                cursorY += (targetY - cursorY) * FACTOR_SUAVIZADO;
+                
+                const finalX = Math.max(0, Math.min(window.innerWidth - 1, cursorX));
+                const finalY = Math.max(0, Math.min(window.innerHeight - 1, cursorY));
+
+                gazeCursor.style.left = `${finalX}px`; gazeCursor.style.top = `${finalY}px`;
+                gazeCursor.style.display = 'block';
+                cursorCoords.textContent = `X: ${Math.round(finalX)} | Y: ${Math.round(finalY)}`;
+                drawTrail(finalX, finalY);
+
+                const element = document.elementFromPoint(finalX, finalY);
+                if (hoveredElement && hoveredElement !== element) hoveredElement.classList.remove('hovered-element');
+                if (element && (element.tagName === 'BUTTON' || element.tagName === 'A' || element.tagName === 'INPUT')) {
+                    element.classList.add('hovered-element');
+                    hoveredElement = element;
+                } else { hoveredElement = null; }
+
+                const ear = (calcularEAR(lm, 33, 133, 159, 145) + calcularEAR(lm, 362, 263, 386, 374)) / 2;
+                if (ear < 0.22 && (Date.now() - lastBlinkTime > 1300)) {
+                    lastBlinkTime = Date.now();
+                    cursorDot.style.backgroundColor = '#ffc107';
+                    cursorDot.style.transform = 'translate(-50%, -50%) scale(2.2)';
+                    setTimeout(() => {
+                        cursorDot.style.backgroundColor = '#ef4444';
+                        cursorDot.style.transform = 'translate(-50%, -50%) scale(1)';
+                    }, 300);
+
+                    if (element) {
+                        if (element.tagName === 'INPUT') element.focus();
+                        element.click();
+                    }
+                }
+            } else {
+                statusEl.textContent = 'Buscando rostro...'; statusEl.style.background = '#dc3545';
+                gazeCursor.style.display = 'none';
+                ctx.clearRect(0, 0, trailCanvas.width, trailCanvas.height);
+                trailPoints.length = 0;
+            }
+        });
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' }, audio: false });
+                videoElement.srcObject = stream; await videoElement.play();
+                new Camera(videoElement, { onFrame: async () => { await faceMesh.send({ image: videoElement }); }, width: 640, height: 480 }).start();
+            } catch (err) { statusEl.textContent = 'Cámara bloqueada'; statusEl.style.background = '#dc3545'; }
+        }
+        startCamera();
     }
-    window.addEventListener('DOMContentLoaded', startCamera);
+
+    window.addEventListener('DOMContentLoaded', iniciarRastreoFacial);
 </script>
 </body>
 </html>
